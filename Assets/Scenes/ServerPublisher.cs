@@ -39,7 +39,6 @@ public class ServerPublisher : MonoBehaviour
 
         // Start AR logic
         StartCoroutine(DetectImageTargetAndSwitch());
-        //StartCoroutine(DetectBarcodeAndSwitch());
     }
 
     private void InitializeSocket()
@@ -104,62 +103,6 @@ public class ServerPublisher : MonoBehaviour
             Vector3.one
         );
     }
-
-
-    //private IEnumerator DetectBarcodeAndSwitch()
-    //{
-    //    // Get the BarcodeBehaviour component
-    //    BarcodeBehaviour barcodeBehaviour = barCode.GetComponent<BarcodeBehaviour>();
-    //    if (barcodeBehaviour == null)
-    //    {
-    //        Debug.LogError("The barcode object does not have a BarcodeBehaviour component.");
-    //        yield break;
-    //    }
-
-    //    // Continuously check the TargetStatus of the barcode
-    //    while (true)
-    //    {
-    //        Debug.Log($"Barcode Status: {barcodeBehaviour.TargetStatus.Status}, Status Info: {barcodeBehaviour.TargetStatus.StatusInfo}");
-
-    //        // Check if the barcode is tracked
-    //        if (barcodeBehaviour.TargetStatus.Status == Status.TRACKED)
-    //        {
-    //            Debug.Log("Barcode has been detected!");
-
-    //            // Get the barcode value
-    //            string barcodeValue = barcodeBehaviour.TargetName;
-    //            Debug.Log($"Barcode content: {barcodeValue}");
-
-    //            // Perform necessary logic (matrix calculation, etc.)
-    //            kinectToImageTargetMatrix = GetKinectToBarcodeMatrix(barcodeBehaviour);
-    //            Debug.Log($"Kinect to Barcode Matrix: {kinectToImageTargetMatrix}");
-
-    //            byte[] matrixData = Matrix4x4ToByteArray(kinectToImageTargetMatrix);
-    //            PublishData("Calibration", matrixData);
-
-    //            DisableARCamera();
-    //            StartCoroutine(CameraCaptureMirror());
-    //            yield break;
-    //        }
-
-    //        // Wait for the next frame
-    //        yield return null;
-    //    }
-    //}
-
-    //private Matrix4x4 GetKinectToBarcodeMatrix(BarcodeBehaviour barcodeBehaviour)
-    //{
-    //    // Get the transform of the AR Camera and the detected barcode
-    //    Transform arTransform = arCamera.transform;
-    //    Transform barcodeTransform = barcodeBehaviour.transform;
-
-    //    // Calculate the relative transformation matrix from Kinect to Barcode
-    //    return Matrix4x4.TRS(
-    //        barcodeTransform.position - arTransform.position,
-    //        Quaternion.Inverse(arTransform.rotation) * barcodeTransform.rotation,
-    //        Vector3.one // Uniform scale
-    //    );
-    //}
 
 
     private byte[] Matrix4x4ToByteArray(Matrix4x4 matrix)
