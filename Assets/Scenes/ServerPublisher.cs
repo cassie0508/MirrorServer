@@ -92,16 +92,26 @@ public class ServerPublisher : MonoBehaviour
 
     private Matrix4x4 GetKinectToImageTargetMatrix(ObserverBehaviour targetObserver)
     {
-        // Retrieve the transformation matrix from AR Camera to Image Target
+        // Retrieve the transformation matrix from AR Camera
         Transform arTransform = arCamera.transform;
-        Transform targetTransform = targetObserver.transform;
-
-        // Calculate the relative matrix (Kinect's position and rotation relative to Image Target)
-        return Matrix4x4.TRS(
-            targetTransform.position - arTransform.position,
-            Quaternion.Inverse(arTransform.rotation) * targetTransform.rotation,
+        Matrix4x4 arCameraMatrix = Matrix4x4.TRS(
+            arTransform.position,
+            arTransform.rotation,
             Vector3.one
         );
+
+        // Retrieve the transformation matrix from Image Target
+        Transform targetTransform = targetObserver.transform;
+        Matrix4x4 targetMatrix = Matrix4x4.TRS(
+            targetTransform.position,
+            targetTransform.rotation,
+            Vector3.one
+        );
+
+        // Calculate the relative matrix (Kinect to Image Target)
+        Matrix4x4 kinectToImageTargetMatrix = targetMatrix * arCameraMatrix.inverse;
+
+        return kinectToImageTargetMatrix;
     }
 
 
