@@ -11,23 +11,27 @@ using PubSub;
 using UnityEngine.UI;
 using Vuforia;
 
-public class ServerPublisher : MonoBehaviour
+public class OldPublisher : MonoBehaviour
 {
     [Header("Network Settings")]
     [SerializeField] private string port = "55555";
     private PublisherSocket dataPubSocket;
 
-    [Header("UI Display")]
-    [SerializeField] public RawImage ConnectionIndicator;
-
     [Header("For Debugging")]
     [SerializeField] private Texture2D ColorImage;
     private Texture2D resizedColorImage;
 
+    [Header("Virtual Overlay Settings")]
+    [SerializeField] private RenderTexture virtualOverlay; // Virtual guidance overlay
+    private Material mergeMaterial;
+
     [Header("AR Camera Settings")]
     [SerializeField] private GameObject arCamera; // Reference to the Vuforia AR Camera
     [SerializeField] private GameObject imageTarget; // Reference to the Image Target
-    //[SerializeField] private GameObject barCode;
+    
+    [Header("Mode Selection")]
+    [SerializeField] private Mode selectedMode;
+    private enum Mode { Calibration, Play }
 
     private Matrix4x4 kinectToImageTargetMatrix;
 
@@ -37,8 +41,17 @@ public class ServerPublisher : MonoBehaviour
     {
         InitializeSocket();
 
-        // Start AR logic
-        StartCoroutine(DetectImageTargetAndSwitch());
+        // Initialize merge material
+        mergeMaterial = new Material(Shader.Find("Shaders/ViewMerge"));
+
+        if (selectedMode == Mode.Calibration)
+        {
+            StartCoroutine(DetectImageTargetAndSwitch());
+        }
+        else if (selectedMode == Mode.Play)
+        {
+            StartCoroutine(CameraCaptureMirror());
+        }
     }
 
     private void InitializeSocket()
@@ -51,7 +64,6 @@ public class ServerPublisher : MonoBehaviour
 
             dataPubSocket.Bind($"tcp://*:{port}");
             Debug.Log("Successfully bound socket port " + port);
-            ConnectionIndicator.color = Color.green;
         }
         catch (Exception ex)
         {
@@ -82,9 +94,6 @@ public class ServerPublisher : MonoBehaviour
 
         byte[] matrixData = Matrix4x4ToByteArray(kinectToImageTargetMatrix);
         PublishData("Calibration", matrixData);
-
-        // Disable AR Camera
-        DisableARCamera();
 
         // Start the original logic
         StartCoroutine(CameraCaptureMirror());
@@ -128,14 +137,11 @@ public class ServerPublisher : MonoBehaviour
         return byteArray;
     }
 
-    private void DisableARCamera()
-    {
-        Debug.Log("Disabling AR Camera...");
-        arCamera.SetActive(false);
-    }
-
     private IEnumerator CameraCaptureMirror()
     {
+        // Disable AR Camera
+        DisableARCamera();
+
         Debug.Log("Start to send kinect data");
         if (Device.GetInstalledCount() == 0)
         {
@@ -195,7 +201,20 @@ public class ServerPublisher : MonoBehaviour
                 ColorImage.LoadRawTextureData(colorData);
                 ColorImage.Apply();
 
-                DownsampleTexture(ref ColorImage, ref resizedColorImage, resizedColorImage.width, resizedColorImage.height);
+                RenderTexture rt = new RenderTexture(ColorImage.width, ColorImage.height, 24);
+                Graphics.Blit(ColorImage, rt, mergeMaterial);
+
+                mergeMaterial.mainTexture = virtualOverlay; // Virtual guidance overlay
+                mergeMaterial.SetTexture("_RealContentTex", ColorImage); // Real content
+
+                Graphics.Blit(rt, rt, mergeMaterial);
+
+                Texture2D mergedTexture = new Texture2D(rt.width, rt.height, TextureFormat.BGRA32, false);
+                RenderTexture.active = rt;
+                mergedTexture.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+                mergedTexture.Apply();
+
+                DownsampleTexture(ref mergedTexture, ref resizedColorImage, resizedColorImage.width, resizedColorImage.height);
                 byte[] resizedColorData = resizedColorImage.GetRawTextureData();
 
                 PublishData("Frame", resizedColorData);
@@ -205,6 +224,12 @@ public class ServerPublisher : MonoBehaviour
             //yield return new WaitForSeconds(0.2f); //5 frames per second
             yield return null;
         }
+    }
+
+    private void DisableARCamera()
+    {
+        Debug.Log("Disabling AR Camera...");
+        if (arCamera != null) arCamera.SetActive(false);
     }
 
     private bool SetupTextures(ref Texture2D Color, ref Texture2D resizedColor)

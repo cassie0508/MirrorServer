@@ -54,4 +54,10 @@ Assets/Kinect4Azure/Plugins/*.meta
 *.mkv
 *.mkv.meta
 
+# Ignore specific files
+*.collabignore
+*.glb
+*.glb.meta
+*.fbx
+*.fbx.meta
 
