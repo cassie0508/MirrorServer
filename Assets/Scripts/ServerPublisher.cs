@@ -1,10 +1,14 @@
+﻿using System;
+using System.Collections;
+using System.Threading.Tasks;
+using UnityEngine;
+using Microsoft.Azure.Kinect.Sensor;
 using NetMQ;
 using NetMQ.Sockets;
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
-using Vuforia;
+using System.Linq;
+using UnityEngine.Playables;
+using PubSub;
+using UnityEngine.UI;
 
 public class ServerPublisher : MonoBehaviour
 {
@@ -12,38 +16,17 @@ public class ServerPublisher : MonoBehaviour
     [SerializeField] private string port = "55555";
     private PublisherSocket dataPubSocket;
 
-    [Header("AR Camera Settings")]
-    [SerializeField] private Camera arCamera;
-    [SerializeField] private GameObject imageTarget;
 
     [Header("For Debugging")]
-    [SerializeField] private Texture2D colorImage;
-    private Texture2D resizedColorImage;
+    [SerializeField] private Texture2D ColorImage;
+    [SerializeField] private Texture2D resizedColorImage;
 
-    private RenderTexture renderTexture;
+    private Device _Device;
 
-    private float sizeBroadcastInterval = 3.0f;
-    private float lastSizeBroadcastTime = -4f;
-
-    void Start()
+    private void Start()
     {
-        if (arCamera == null)
-        {
-            Debug.LogError("AR Camera is not set.");
-            return;
-        }
-
         InitializeSocket();
-
-        InitializeTexture();
-
-        // Wait until image target is tracked
-        ObserverBehaviour targetObserver = imageTarget.GetComponent<ObserverBehaviour>();
-        while (targetObserver.TargetStatus.Status == Status.TRACKED)
-        {
-            Debug.Log("Marker is tracked. Start to publish data.");
-            break;
-        }   
+        StartCoroutine(CameraCaptureMirror());
     }
 
     private void InitializeSocket()
@@ -63,48 +46,87 @@ public class ServerPublisher : MonoBehaviour
         }
     }
 
-    private void InitializeTexture()
+    private IEnumerator CameraCaptureMirror()
     {
-        // TODO: Consider using _Camera.sensorSize.x instead of Screen
-        // TODO: RGB24 or RGB32
-        renderTexture = new RenderTexture(Screen.width, Screen.height, 24);
-        arCamera.targetTexture = renderTexture;
+        if (Device.GetInstalledCount() == 0)
+        {
+            Debug.LogError("No Kinect Device Found");
+            yield break;
+        }
 
-        colorImage = new Texture2D(Screen.width, Screen.height, TextureFormat.RGB24, false);
-        resizedColorImage = new Texture2D(Screen.width / 2, Screen.height / 2, TextureFormat.RGB24, false);
+        try
+        {
+            _Device = Device.Open();
+        }
+        catch (AzureKinectOpenDeviceException ex)
+        {
+            Debug.LogError($"Failed to open Azure Kinect device: {ex.Message}");
+            yield break;
+        }
+
+        var configuration = new DeviceConfiguration
+        {
+            ColorFormat = ImageFormat.ColorBGRA32,
+            ColorResolution = ColorResolution.R1080p,
+            DepthMode = DepthMode.NFOV_2x2Binned,
+            SynchronizedImagesOnly = true,
+            CameraFPS = FPS.FPS30
+        };
+
+        _Device.StartCameras(configuration);
+
+        // For debugging: Set up textures
+        if (!SetupTextures(ref ColorImage, ref resizedColorImage))
+        {
+            Debug.LogError("CameraCapture(): Something went wrong while setting up camera textures");
+            yield break;
+        }
+
+        int[] sizeArray = new int[2] { resizedColorImage.width, resizedColorImage.height };
+        Debug.Log($"Send size width {resizedColorImage.width} and {resizedColorImage.height}");
+        byte[] sizeData = new byte[sizeArray.Length * sizeof(int)];
+        Buffer.BlockCopy(sizeArray, 0, sizeData, 0, sizeData.Length);
+        PublishData("Size", sizeData);
+
+        /* Publish Frame Data */
+        while (true)
+        {
+            using (var capture = _Device.GetCapture())
+            {
+                byte[] colorData = capture.Color.Memory.ToArray();
+
+                ColorImage.LoadRawTextureData(colorData);
+                ColorImage.Apply();
+
+                DownsampleTexture(ref ColorImage, ref resizedColorImage, resizedColorImage.width, resizedColorImage.height);
+                byte[] resizedColorData = resizedColorImage.GetRawTextureData();
+
+                PublishData("Frame", resizedColorData);
+            }
+
+            //yield return new WaitForSeconds(0.2f); //5 frames per second
+            yield return null;
+        }
     }
 
-    void Update()
+    private bool SetupTextures(ref Texture2D Color, ref Texture2D resizedColor)
     {
-        // Publish size data every 5 seconds
-        if (Time.time - lastSizeBroadcastTime > sizeBroadcastInterval && Time.time < 20)
+        try
         {
-            int[] sizeArray = new int[2] { resizedColorImage.width, resizedColorImage.height };
-            byte[] sizeData = new byte[sizeArray.Length * sizeof(int)];
-            Buffer.BlockCopy(sizeArray, 0, sizeData, 0, sizeData.Length);
-            PublishData("Size", sizeData);
-
-            lastSizeBroadcastTime = Time.time;
-            Debug.Log("Periodic size broadcast.");
-        } 
-
-        // Render current frame on RenderTexture
-        RenderTexture.active = renderTexture;
-        arCamera.targetTexture = renderTexture;
-        arCamera.Render();
-
-        // Read RenderTexture data to colorImage
-        colorImage.ReadPixels(new Rect(0, 0, Screen.width, Screen.height), 0, 0);
-        colorImage.Apply();
-
-        // Publish colorImage data for every frame
-        DownsampleTexture(ref colorImage, ref resizedColorImage, resizedColorImage.width, resizedColorImage.height);
-        byte[] resizedColorData = resizedColorImage.GetRawTextureData();
-        PublishData("Frame", resizedColorData);
-
-        // Reset RenderTexture
-        arCamera.targetTexture = null;
-        RenderTexture.active = null;
+            using (var capture = _Device.GetCapture())
+            {
+                if (Color == null)
+                    Color = new Texture2D(capture.Color.WidthPixels, capture.Color.HeightPixels, TextureFormat.BGRA32, false);
+                if (resizedColor == null)
+                    resizedColor = new Texture2D(capture.Color.WidthPixels / 4, capture.Color.HeightPixels / 4, TextureFormat.BGRA32, false);
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"An error occurred " + ex.Message);
+            return false;
+        }
+        return true;
     }
 
     public void DownsampleTexture(ref Texture2D originalTexture, ref Texture2D resizedTexture, int targetWidth, int targetHeight)
@@ -113,7 +135,7 @@ public class ServerPublisher : MonoBehaviour
         RenderTexture.active = rt;
 
         // Copy original texture to the render texture
-        Graphics.Blit(originalTexture, rt);
+        Graphics.Blit(originalTexture, rt,new Vector2(1, -1), Vector2.zero);
 
         // Read pixels from the render texture into the new Texture2D
         resizedTexture.ReadPixels(new Rect(0, 0, targetWidth, targetHeight), 0, 0);
@@ -131,7 +153,7 @@ public class ServerPublisher : MonoBehaviour
         {
             try
             {
-                // TODO: Can be removed after test
+                Debug.Log($"Sending topic and data length: {topic}, {data.Length}");
                 if (topic == "Frame")
                 {
                     long timestamp = DateTime.UtcNow.Ticks;
@@ -147,6 +169,11 @@ public class ServerPublisher : MonoBehaviour
                     dataPubSocket.SendMoreFrame(topic).SendFrame(data);
                 }
             }
+            catch (NetMQ.TerminatingException)
+            {
+                Debug.LogWarning("Context was terminated. Reinitializing socket.");
+                InitializeSocket();
+            }
             catch (Exception ex)
             {
                 Debug.LogWarning($"Failed to publish data: {ex.Message}");
@@ -154,22 +181,20 @@ public class ServerPublisher : MonoBehaviour
         }
     }
 
-    void OnDestroy()
+    private void OnDestroy()
     {
         Debug.Log("Closing socket on port " + port);
         dataPubSocket.Dispose();
         NetMQConfig.Cleanup(false);
         dataPubSocket = null;
 
-        if (renderTexture != null)
-        {
-            renderTexture.Release();
-            Destroy(renderTexture);
-        }
+        StopAllCoroutines();
+        Task.WaitAny(Task.Delay(1000));
 
-        if (colorImage != null)
+        if (_Device != null)
         {
-            Destroy(colorImage);
+            _Device.StopCameras();
+            _Device.Dispose();
         }
     }
 }
