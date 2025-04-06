@@ -135,9 +135,11 @@ public class ServerPublisher : MonoBehaviour
         RenderTexture.active = rt;
 
         // Copy original texture to the render texture
-        Graphics.Blit(originalTexture, rt,new Vector2(1, -1), Vector2.zero);
+        //Graphics.Blit(originalTexture, rt,new Vector2(1, -1), Vector2.zero);
+        Graphics.Blit(originalTexture, rt, new Vector2(0.5f, -0.5f), new Vector2(0.25f, 0.75f));
 
         // Read pixels from the render texture into the new Texture2D
+        //resizedTexture.ReadPixels(new Rect(0, 0, targetWidth, targetHeight), 0, 0);
         resizedTexture.ReadPixels(new Rect(0, 0, targetWidth, targetHeight), 0, 0);
         resizedTexture.Apply();
 
